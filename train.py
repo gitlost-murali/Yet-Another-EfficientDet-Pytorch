@@ -16,6 +16,7 @@ from efficientdet.dataset import CocoDataset, Resizer, Normalizer, Augmenter, co
 from backbone import EfficientDetBackbone
 from tensorboardX import SummaryWriter
 import numpy as np
+import os, cv2
 from tqdm.autonotebook import tqdm
 
 from efficientdet.loss import FocalLoss
@@ -58,7 +59,7 @@ def get_args():
     parser.add_argument('-w', '--load_weights', type=str, default=None,
                         help='whether to load weights from a checkpoint, set None to initialize, set \'last\' to load last checkpoint')
     parser.add_argument('--saved_path', type=str, default='logs/')
-    parser.add_argument('--debug', type=bool, default=False, help='whether visualize the predicted boxes of trainging, '
+    parser.add_argument('--debug', type=bool, default=True, help='whether visualize the predicted boxes of trainging, '
                                                                   'the output images will be in test/')
 
     args = parser.parse_args()
@@ -75,12 +76,11 @@ class ModelWithLoss(nn.Module):
     def forward(self, imgs, annotations, obj_list=None):
         _, regression, classification, anchors = self.model(imgs)
         if self.debug:
-            cls_loss, reg_loss = self.criterion(classification, regression, anchors, annotations,
-                                                imgs=imgs, obj_list=obj_list)
+            cls_loss, reg_loss, imgs_labelled = self.criterion(classification, regression, anchors, annotations,imgs=imgs, obj_list=obj_list)
+            return cls_loss, reg_loss, imgs_labelled
         else:
             cls_loss, reg_loss = self.criterion(classification, regression, anchors, annotations)
-        return cls_loss, reg_loss
-
+            return cls_loss, reg_loss
 
 def train(opt):
     params = Params(f'projects/{opt.project}.yml')
@@ -224,7 +224,13 @@ def train(opt):
                         annot = annot.cuda()
 
                     optimizer.zero_grad()
-                    cls_loss, reg_loss = model(imgs, annot, obj_list=params.obj_list)
+                    if iter%(num_iter_per_epoch//10)!=0: 
+                        model.debug=False
+                        cls_loss, reg_loss = model(imgs, annot, obj_list=params.obj_list)
+                    else: 
+                        model.debug=True
+                        cls_loss, reg_loss, imgs_labelled = model(imgs, annot, obj_list=params.obj_list)
+
                     cls_loss = cls_loss.mean()
                     reg_loss = reg_loss.mean()
 
@@ -245,7 +251,7 @@ def train(opt):
                     writer.add_scalars('Loss', {'train': loss}, step)
                     writer.add_scalars('Regression_loss', {'train': reg_loss}, step)
                     writer.add_scalars('Classfication_loss', {'train': cls_loss}, step)
-
+                    if iter%(num_iter_per_epoch//10)==0: writer.add_images('Camtrap_images_with_predicted_bboxes', imgs_labelled, global_step=step)
                     # log learning_rate
                     current_lr = optimizer.param_groups[0]['lr']
                     writer.add_scalar('learning_rate', current_lr, step)

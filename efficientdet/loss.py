@@ -4,8 +4,7 @@ import cv2
 import numpy as np
 
 from efficientdet.utils import BBoxTransform, ClipBoxes
-from utils.utils import postprocess, invert_affine, display
-
+from utils.utils import postprocess, invert_affine
 
 def calc_iou(a, b):
     # a(anchor) [boxes, (y1, x1, y2, x2)]
@@ -154,7 +153,28 @@ class FocalLoss(nn.Module):
             imgs = imgs.permute(0, 2, 3, 1).cpu().numpy()
             imgs = ((imgs * [0.229, 0.224, 0.225] + [0.485, 0.456, 0.406]) * 255).astype(np.uint8)
             imgs = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in imgs]
-            display(out, imgs, obj_list, imshow=False, imwrite=True)
+
+            for i in range(len(imgs)):
+                if len(out[i]['rois']) == 0:
+                    continue
+
+                for j in range(len(out[i]['rois'])):
+                    (x1, y1, x2, y2) = out[i]['rois'][j].astype(np.int)
+                    cv2.rectangle(imgs[i], (x1, y1), (x2, y2), (255, 255, 0), 2)
+                    obj = obj_list[out[i]['class_ids'][j]]
+                    score = float(out[i]['scores'][j])
+
+                    cv2.putText(imgs[i], '{}, {:.3f}'.format(obj, score),
+                                (x1, y1 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                                (255, 255, 0), 1)
+
+            imgs = np.asarray(imgs)
+            imgs = imgs.swapaxes(1, 3) 
+            return torch.stack(classification_losses).mean(dim=0, keepdim=True), \
+               torch.stack(regression_losses).mean(dim=0, keepdim=True), imgs
+
+            # display(out, imgs, obj_list, imshow=False, imwrite=True)
+            # display_tboard(out, imgs, obj_list, imshow=False, imwrite=False,global_step=global_step,classification_loss= torch.stack(classification_losses).mean(dim=0, keepdim=True).detach()[0].cpu(),regression_loss= torch.stack(regression_losses).mean(dim=0, keepdim=True).detach()[0].cpu())
 
         return torch.stack(classification_losses).mean(dim=0, keepdim=True), \
                torch.stack(regression_losses).mean(dim=0, keepdim=True)
