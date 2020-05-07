@@ -52,6 +52,8 @@ Run this test on 2080Ti, Ubuntu 19.10 x64.
 ___
 # Update log
 
+[2020-05-04] fix coco category id mismatch bug, but it shouldn't affect training on custom dataset.
+
 [2020-04-14] fixed loss function bug. please pull the latest code.
 
 [2020-04-14] for those who needs help or can't get a good result after several epochs, check out this [tutorial](tutorial/train_shape.ipynb). You can run it on colab with GPU support.
@@ -77,7 +79,7 @@ ___
 # Demo
 
     # install requirements
-    pip install pycocotools numpy opencv-python tqdm tensorboard tensorboardX pyyaml
+    pip install pycocotools numpy opencv-python tqdm tensorboard tensorboardX pyyaml webcolors
     pip install torch==1.4.0
     pip install torchvision==0.5.0
      
@@ -145,7 +147,7 @@ Check out this [tutorial](tutorial/train_shape.ipynb) if you are new to this. Yo
     obj_list: ['person', 'bicycle', 'car', ...]
 
 
-## 3.a. Train on coco from scratch
+## 3.a. Train on coco from scratch(not necessary)
 
     # train efficientdet-d0 on coco from scratch 
     # with batchsize 12
@@ -157,7 +159,7 @@ Check out this [tutorial](tutorial/train_shape.ipynb) if you are new to this. Yo
     # The first few epoches will be rather unstable,
     # it's quite normal when you train from scratch.
     
-    python train.py -c 0 --batch_size 12
+    python train.py -c 0 --batch_size 64 --optim sgd --lr 8e-2
     
 ## 3.b. Train a custom dataset from scratch
     
@@ -312,7 +314,7 @@ A3: Check out the update log if it's been fixed, then pull the latest code to tr
     
 # Visual Comparison
 
-Conclusion: They are providing almost the same precision.
+Conclusion: They are providing almost the same precision. Tips: set `force_input_size=1920`. Official repo uses original image size while this repo uses default network input size. If you try to compare these two repos, you must make sure the input size is consistent.
 
 ## This Repo
 <img src="https://raw.githubusercontent.com/zylo117/Yet-Another-Efficient-Pytorch/master/test/img_inferred_d0_this_repo.jpg" width="640">

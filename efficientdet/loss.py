@@ -1,10 +1,9 @@
-import torch
-import torch.nn as nn
 import cv2
 import numpy as np
-
+import torch
+import torch.nn as nn
 from efficientdet.utils import BBoxTransform, ClipBoxes
-from utils.utils import postprocess, invert_affine
+from utils.utils import postprocess
 
 def calc_iou(a, b):
     # a(anchor) [boxes, (y1, x1, y2, x2)]
@@ -52,15 +51,34 @@ class FocalLoss(nn.Module):
 
             if bbox_annotation.shape[0] == 0:
                 if torch.cuda.is_available():
+                    
+                    alpha_factor = torch.ones_like(classification) * alpha
+                    alpha_factor = alpha_factor.cuda()
+                    alpha_factor = 1. - alpha_factor
+                    focal_weight = classification
+                    focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
+                    
+                    bce = -(torch.log(1.0 - classification))
+                    
+                    cls_loss = focal_weight * bce
+                    
                     regression_losses.append(torch.tensor(0).to(dtype).cuda())
-                    classification_losses.append(torch.tensor(0).to(dtype).cuda())
+                    classification_losses.append(cls_loss.sum())
                 else:
+                    
+                    alpha_factor = torch.ones_like(classification) * alpha
+                    alpha_factor = 1. - alpha_factor
+                    focal_weight = classification
+                    focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
+                    
+                    bce = -(torch.log(1.0 - classification))
+                    
+                    cls_loss = focal_weight * bce
+                    
                     regression_losses.append(torch.tensor(0).to(dtype))
-                    classification_losses.append(torch.tensor(0).to(dtype))
+                    classification_losses.append(cls_loss.sum())
 
                 continue
-
-            classification = torch.clamp(classification, 1e-4, 1.0 - 1e-4)
 
             IoU = calc_iou(anchor[:, :], bbox_annotation[:, :4])
 
@@ -152,9 +170,10 @@ class FocalLoss(nn.Module):
                               0.5, 0.3)
             imgs = imgs.permute(0, 2, 3, 1).cpu().numpy()
             imgs = ((imgs * [0.229, 0.224, 0.225] + [0.485, 0.456, 0.406]) * 255).astype(np.uint8)
-            imgs = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in imgs]
+            # imgs = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in imgs] 
+            # Uncomment the above line if you're storing the images using opencv.
 
-            for i in range(len(imgs)):
+            for i, _ in enumerate(imgs):
                 if len(out[i]['rois']) == 0:
                     continue
 
@@ -168,13 +187,8 @@ class FocalLoss(nn.Module):
                                 (x1, y1 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                                 (255, 255, 0), 1)
 
-            imgs = np.asarray(imgs)
-            imgs = imgs.swapaxes(1, 3) 
             return torch.stack(classification_losses).mean(dim=0, keepdim=True), \
                torch.stack(regression_losses).mean(dim=0, keepdim=True), imgs
-
-            # display(out, imgs, obj_list, imshow=False, imwrite=True)
-            # display_tboard(out, imgs, obj_list, imshow=False, imwrite=False,global_step=global_step,classification_loss= torch.stack(classification_losses).mean(dim=0, keepdim=True).detach()[0].cpu(),regression_loss= torch.stack(regression_losses).mean(dim=0, keepdim=True).detach()[0].cpu())
 
         return torch.stack(classification_losses).mean(dim=0, keepdim=True), \
                torch.stack(regression_losses).mean(dim=0, keepdim=True)
