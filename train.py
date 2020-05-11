@@ -6,6 +6,7 @@ import datetime
 import os
 import argparse
 import traceback
+import json
 import yaml
 import numpy as np
 from tqdm.autonotebook import tqdm
@@ -19,9 +20,10 @@ import torchvision
 from efficientdet.dataset import CocoDataset, Resizer, Normalizer, Augmenter, collater
 from efficientdet.loss import FocalLoss
 from backbone import EfficientDetBackbone
+
 from utils.sync_batchnorm import patch_replication_callback
 from utils.utils import replace_w_sync_bn, CustomDataParallel, get_last_weights, init_weights
-
+from utils.calc_eval import calc_mAP_fin, evaluate_mAP
 
 class Params:
     '''
@@ -100,9 +102,23 @@ class ModelWithLoss(nn.Module):
         self.criterion = FocalLoss()
         self.model = model
         self.debug = debug
-
-    def forward(self, imgs, annotations, obj_list=None):
+        self.evalresults = []
+    def forward(self, imgs, annotations, obj_list=None, **kwargs):
         _, regression, classification, anchors = self.model(imgs)
+        imgs_scales = kwargs.get('resizing_imgs_scales', None)
+        new_ws = kwargs.get('new_ws', None)
+        new_hs = kwargs.get('new_hs', None)
+        imgs_ids = kwargs.get('imgs_ids', None)
+         # `resizing_imgs_scales` will be activated in eval mode
+        if new_ws is not None:
+            img_max = max(new_ws[0],new_hs[0])
+            framed_metas = [(w, h, w/scale, h/scale,img_max-w,img_max-h) for w,h,scale in zip(new_ws,new_hs,imgs_scales)]
+            framed_metas = [(int(a),int(b),int(c),int(d),int(e),int(f)) for (a,b,c,d,e,f) in framed_metas] 
+            #Framed metas =  [w,h,org_w,org_h,pad_w,pad_h]
+            # Example     = [(512, 384, 2048, 1536, 0, 128)]
+            self.evalresults += evaluate_mAP(imgs.detach(), imgs_ids, framed_metas,
+                                             regression, classification, anchors)
+                                             
         imgs_labelled = []
         if self.debug:
             cls_loss, reg_loss, imgs_labelled = self.criterion(classification, regression,
@@ -131,6 +147,11 @@ def train(opt):
     opt.log_path = opt.log_path + f'/{params.project_name}/tensorboard/'
     os.makedirs(opt.log_path, exist_ok=True)
     os.makedirs(opt.saved_path, exist_ok=True)
+
+    # evaluation json file
+    pred_folder = f'datasets/{OPT.project}/predictions'
+    os.makedirs(pred_folder, exist_ok=True)
+    evaluation_pred_file = f'{pred_folder}/instances_bbox_results.json'
 
     training_params = {'batch_size': opt.batch_size,
                        'shuffle': True,
@@ -319,18 +340,31 @@ def train(opt):
             if epoch % opt.val_interval == 0:
                 model.eval()
                 model.debug = False
+                
+                # remove json
+                if os.path.exists(evaluation_pred_file):
+                    os.remove(evaluation_pred_file)
+
                 loss_regression_ls = []
                 loss_classification_ls = []
+                model.evalresults = [] # Empty the results for next epoch evaluation.
                 for iternum, data in enumerate(val_generator):
                     with torch.no_grad():
                         imgs = data['img']
                         annot = data['annot']
+                        resizing_imgs_scales = data['scale']
+                        new_ws = data['new_w'] 
+                        new_hs = data['new_h'] 
+                        imgs_ids = data['img_id']
 
-                        if params.num_gpus == 1:
+                        if params.num_gpus >= 1:
                             imgs = imgs.cuda()
                             annot = annot.cuda()
 
-                        cls_loss, reg_loss, _ = model(imgs, annot, obj_list=params.obj_list)
+                        cls_loss, reg_loss, _ = model(imgs, annot, obj_list=params.obj_list,
+                                                    resizing_imgs_scales=resizing_imgs_scales,
+                                                    new_ws=new_ws, new_hs=new_hs, imgs_ids=imgs_ids)
+
                         cls_loss = cls_loss.mean()
                         reg_loss = reg_loss.mean()
 
@@ -344,6 +378,9 @@ def train(opt):
                 cls_loss = np.mean(loss_classification_ls)
                 reg_loss = np.mean(loss_regression_ls)
                 loss = cls_loss + reg_loss
+
+                json.dump(model.evalresults, open(evaluation_pred_file, 'w'), indent=4)
+                calc_mAP_fin(params.project_name,params.val_set,evaluation_pred_file)
 
                 print(
                     'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. Total loss: {:1.5f}'.format(

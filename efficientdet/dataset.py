@@ -45,7 +45,8 @@ class CocoDataset(Dataset):
 
         img = self.load_image(idx)
         annot = self.load_annotations(idx)
-        sample = {'img': img, 'annot': annot}
+        image_info = self.coco.loadImgs(self.image_ids[idx])[0]
+        sample = {'img': img, 'annot': annot, 'img_id':image_info['id']}
         if self.transform:
             sample = self.transform(sample)
         return sample
@@ -97,6 +98,9 @@ def collater(data):
     imgs = [s['img'] for s in data]
     annots = [s['annot'] for s in data]
     scales = [s['scale'] for s in data]
+    new_ws = [s['new_w'] for s in data]
+    new_hs = [s['new_h'] for s in data]
+    imgs_ids = [s['img_id'] for s in data]
 
     imgs = torch.from_numpy(np.stack(imgs, axis=0))
 
@@ -113,8 +117,7 @@ def collater(data):
         annot_padded = torch.ones((len(annots), 1, 5)) * -1
 
     imgs = imgs.permute(0, 3, 1, 2)
-
-    return {'img': imgs, 'annot': annot_padded, 'scale': scales}
+    return {'img': imgs, 'annot': annot_padded, 'scale': scales, 'new_w': new_ws, 'new_h': new_hs, 'img_id': imgs_ids}
 
 
 class Resizer(object):
@@ -125,6 +128,8 @@ class Resizer(object):
 
     def __call__(self, sample):
         image, annots = sample['img'], sample['annot']
+        img_id = sample['img_id']
+
         height, width, _ = image.shape
         if height > width:
             scale = self.img_size / height
@@ -142,7 +147,7 @@ class Resizer(object):
 
         annots[:, :4] *= scale
 
-        return {'img': torch.from_numpy(new_image).to(torch.float32), 'annot': torch.from_numpy(annots), 'scale': scale}
+        return {'img': torch.from_numpy(new_image).to(torch.float32), 'annot': torch.from_numpy(annots), 'scale': scale, 'new_w' : resized_width, 'new_h' : resized_height, 'img_id': img_id}
 
 
 class Augmenter(object):
@@ -151,6 +156,7 @@ class Augmenter(object):
     def __call__(self, sample, flip_x=0.5):
         if np.random.rand() < flip_x:
             image, annots = sample['img'], sample['annot']
+            img_id = sample['img_id']
             image = image[:, ::-1, :]
 
             rows, cols, channels = image.shape
@@ -163,7 +169,7 @@ class Augmenter(object):
             annots[:, 0] = cols - x2
             annots[:, 2] = cols - x_tmp
 
-            sample = {'img': image, 'annot': annots}
+            sample = {'img': image, 'annot': annots, 'img_id' : img_id}
 
         return sample
 
@@ -176,5 +182,6 @@ class Normalizer(object):
 
     def __call__(self, sample):
         image, annots = sample['img'], sample['annot']
+        img_id = sample['img_id']
 
-        return {'img': ((image.astype(np.float32) - self.mean) / self.std), 'annot': annots}
+        return {'img': ((image.astype(np.float32) - self.mean) / self.std), 'annot': annots, 'img_id': img_id}
