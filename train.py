@@ -387,8 +387,8 @@ def train(opt):
                     for catgname in val_results:
                         for metricname, evalscore in val_results[catgname].items():
                             writer.add_scalars(f'{catgname}', {f'{metricname}': evalscore}, step)
-                except:
-                    print("Unable to perform evaluation")
+                except Exception as e:
+                    print("Unable to perform evaluation",e)
 
                 print(
                     'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. Total loss: {:1.5f}'.format(
