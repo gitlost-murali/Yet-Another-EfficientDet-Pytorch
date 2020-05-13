@@ -6,9 +6,10 @@ put weights here /path/to/your/weights/*.pth
 change compound_coef
 
 """
-
-import torch
+import io, sys
 import yaml
+import re
+import torch
 
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
@@ -64,11 +65,31 @@ def _eval(coco_gt, image_ids, pred_json_path):
 
     # run COCO evaluation
     print('BBox')
-    coco_eval = COCOeval(coco_gt, coco_pred, 'bbox')
-    coco_eval.params.imgIds = image_ids
-    coco_eval.evaluate()
-    coco_eval.accumulate()
-    coco_eval.summarize()
+
+    # pattern = r"(.+)@\[ (.+) \| (.+) \| (.+) \] = (.+)"
+    category_results = dict()
+
+    for catgry in coco_gt.loadCats(coco_gt.getCatIds()):
+        print("mAP metrics for Category --> ", catgry['name'])
+        category_results[catgry['name']] = dict()
+        coco_eval = COCOeval(coco_gt, coco_pred, 'bbox')
+        coco_eval.params.imgIds = image_ids
+        coco_eval.params.catIds = [catgry['id']]
+        coco_eval.evaluate()
+        coco_eval.accumulate()
+        _stdout = sys.stdout # Start getting console output
+        sys.stdout = io.StringIO()
+        coco_eval.summarize()
+        coco_summary = sys.stdout.getvalue()
+        sys.stdout = _stdout # Stop getting console output
+        coco_summary = str(coco_summary).strip()
+        lines = coco_summary.split('\n')
+        for lin in lines:
+            chunks = lin.split('=')
+            metric = " = ".join(chunks[:-1]).strip()
+            score  = float(chunks[-1].strip())
+            category_results[catgry['name']][metric] = score
+    return category_results
 
 def calc_mAP_fin(project_name='shape',
                  set_name='val',
@@ -77,4 +98,4 @@ def calc_mAP_fin(project_name='shape',
     max_images = 10000
     coco_gt = COCO(val_gt)
     image_ids = coco_gt.getImgIds()[:max_images]
-    _eval(coco_gt, image_ids, evaluation_pred_file)
+    return _eval(coco_gt, image_ids, evaluation_pred_file)

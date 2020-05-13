@@ -380,7 +380,15 @@ def train(opt):
                 loss = cls_loss + reg_loss
 
                 json.dump(model.evalresults, open(evaluation_pred_file, 'w'), indent=4)
-                calc_mAP_fin(params.project_name,params.val_set,evaluation_pred_file)
+                try:
+                    val_results = calc_mAP_fin(params.project_name, 
+                                                params.val_set, evaluation_pred_file)
+                    
+                    for catgname in val_results:
+                        for metricname, evalscore in val_results[catgname].items():
+                            writer.add_scalars(f'{catgname}', {f'{metricname}': evalscore}, step)
+                except:
+                    print("Unable to perform evaluation")
 
                 print(
                     'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. Total loss: {:1.5f}'.format(
