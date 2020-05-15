@@ -385,10 +385,11 @@ def train(opt):
                                                 params.val_set, evaluation_pred_file)
                     
                     for catgname in val_results:
-                        for metricname, evalscore in val_results[catgname].items():
-                            writer.add_scalars(f'{catgname}', {f'{metricname}': evalscore}, step)
-                except Exception as e:
-                    print("Unable to perform evaluation",e)
+                        metricname = 'Average Precision  (AP) @[ IoU = 0.50      | area =    all | maxDets = 100 ]'
+                        evalscore = val_results[catgname][metricname]
+                        writer.add_scalars(f'mAP@IoU=0.5 and area=all', {f'{catgname}': evalscore}, step)
+                except Exception as exption:
+                    print("Unable to perform evaluation", exption)
 
                 print(
                     'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. Total loss: {:1.5f}'.format(
