@@ -86,6 +86,10 @@ def get_args():
     parser.add_argument('--viz_percent_epoch', type=int, default=10,\
                 help=' To determine, at what part of an epoch you want to visualize'\
                      'An entry of 10 would mean, for every 1/10th of an epoch, we visualize')
+    parser.add_argument('--max_preds_toeval', type=int, default=20000,\
+                help=' In the initial phases of training, model produces a lot of'\
+                     'bounding boxes for a single image. So, limit the preds '\
+                    ' to a certain number to avoid overburning CPU.')
 
     args = parser.parse_args()
     return args
@@ -260,6 +264,9 @@ def train(opt):
     model.train()
 
     num_iter_per_epoch = len(training_generator)
+    num_val_iter_per_epoch = len(val_generator)
+    #Limit the no.of preds to #images in val. Here, I averaged the #obj to 5 for computational efficacy
+    if opt.max_preds_toeval > 0: opt.max_preds_toeval = len(val_generator)*opt.batch_size* 5 
 
     try:
         for epoch in range(opt.num_epochs):
@@ -339,7 +346,7 @@ def train(opt):
 
             if epoch % opt.val_interval == 0:
                 model.eval()
-                model.debug = False
+                model.debug = False # Don't print images in tensorboard now.
                 
                 # remove json
                 if os.path.exists(evaluation_pred_file):
@@ -361,16 +368,25 @@ def train(opt):
                             imgs = imgs.cuda()
                             annot = annot.cuda()
 
-                        cls_loss, reg_loss, _ = model(imgs, annot, obj_list=params.obj_list,
-                                                    resizing_imgs_scales=resizing_imgs_scales,
-                                                    new_ws=new_ws, new_hs=new_hs, imgs_ids=imgs_ids)
+                        if iternum%(num_iter_per_epoch//opt.viz_percent_epoch) != 0:
+                            model.debug = False
+                            cls_loss, reg_loss, _ = model(imgs, annot, obj_list=params.obj_list,
+                                                        resizing_imgs_scales=resizing_imgs_scales,
+                                                        new_ws=new_ws, new_hs=new_hs, imgs_ids=imgs_ids)
+                        else:
+                            model.debug = True
+                            cls_loss, reg_loss, imgs_labelled = model(imgs, annot, obj_list=params.obj_list,
+                                                        resizing_imgs_scales=resizing_imgs_scales,
+                                                        new_ws=new_ws, new_hs=new_hs, imgs_ids=imgs_ids)
 
-                        cls_loss = cls_loss.mean()
-                        reg_loss = reg_loss.mean()
-
-                        loss = cls_loss + reg_loss
-                        if loss == 0 or not torch.isfinite(loss):
-                            continue
+                            # create grid of images
+                            imgs_labelled = np.asarray(imgs_labelled)
+                            imgs_labelled = torch.from_numpy(imgs_labelled)   # (N, H, W, C)
+                            imgs_labelled.transpose_(1, 3) # (N, C, H, W)
+                            imgs_labelled.transpose_(2, 3)
+                            img_grid = torchvision.utils.make_grid(imgs_labelled)
+                            # write to tensorboard
+                            writer.add_image('Eval_Camtrap_images_with_predicted_bboxes', img_grid, global_step=(iternum+(num_val_iter_per_epoch*epoch)))
 
                         loss_classification_ls.append(cls_loss.item())
                         loss_regression_ls.append(reg_loss.item())
@@ -378,25 +394,26 @@ def train(opt):
                 cls_loss = np.mean(loss_classification_ls)
                 reg_loss = np.mean(loss_regression_ls)
                 loss = cls_loss + reg_loss
-
-                json.dump(model.evalresults, open(evaluation_pred_file, 'w'), indent=4)
-                try:
-                    val_results = calc_mAP_fin(params.project_name, 
-                                                params.val_set, evaluation_pred_file)
-                    
-                    for catgname in val_results:
-                        metricname = 'Average Precision  (AP) @[ IoU = 0.50      | area =    all | maxDets = 100 ]'
-                        evalscore = val_results[catgname][metricname]
-                        writer.add_scalars(f'mAP@IoU=0.5 and area=all', {f'{catgname}': evalscore}, step)
-                except Exception as exption:
-                    print("Unable to perform evaluation", exption)
-
+                
                 print(
                     'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. Total loss: {:1.5f}'.format(
                         epoch, opt.num_epochs, cls_loss, reg_loss, loss))
                 writer.add_scalars('Loss', {'val': loss}, step)
                 writer.add_scalars('Regression_loss', {'val': reg_loss}, step)
                 writer.add_scalars('Classfication_loss', {'val': cls_loss}, step)
+
+                if opt.max_preds_toeval > 0:
+                    json.dump(model.evalresults, open(evaluation_pred_file, 'w'), indent=4)
+                    try:
+                        val_results = calc_mAP_fin(params.project_name,
+                                                    params.val_set, evaluation_pred_file)
+                        
+                        for catgname in val_results:
+                            metricname = 'Average Precision  (AP) @[ IoU = 0.50      | area =    all | maxDets = 100 ]'
+                            evalscore = val_results[catgname][metricname]
+                            writer.add_scalars(f'mAP@IoU=0.5 and area=all', {f'{catgname}': evalscore}, step)
+                    except Exception as exption:
+                        print("Unable to perform evaluation", exption)
 
                 if loss + opt.es_min_delta < best_loss:
                     best_loss = loss
