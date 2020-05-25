@@ -49,7 +49,9 @@ for instance in tqdm(instances,desc='Progress:'):
     filename = instance['download_id'] + '.jpg'
     if not filename in split_filenames: continue # Skip if the image is from another split type
     try:
-        height, width, _ = imread(str(dataset_directory/f'{split_type}/{filename}')).shape
+        img = imread(str(dataset_directory/f'{split_type}/{filename}'))
+        if img is None:continue
+        height, width, _ = img.shape
     except Exception as e:
         print(f'{filename} is skipped due to ',e)
         continue
