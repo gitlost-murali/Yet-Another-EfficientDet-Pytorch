@@ -3,13 +3,16 @@ from tqdm import tqdm # For checking progress
 import os, sys # For arguments
 from glob import glob # For listing filenames
 from cv2 import imread # For finding dimensions
+from pathlib import Path
 
 split_type = sys.argv[1] # train / val / test
+json_file = sys.argv[2] # path of `bboxes_inc_empty_20200325.json`
+dataset_directory = Path(json_file).resolve().parent
 
-if not os.path.exists('annotations/'): os.mkdir('annotations/')
-if os.path.exists(f'annotations/instances_{split_type}.json'): sys.exit("File already exists...\nQuitting the program....")
+if not os.path.exists(dataset_directory/'annotations/'): os.mkdir(dataset_directory/'annotations/')
+if os.path.exists(dataset_directory/f'annotations/instances_{split_type}.json'): sys.exit("File already exists...\nQuitting the program....")
 
-split_filenames = [ os.path.basename(imgname) for imgname in glob(f"{split_type}/*")]
+split_filenames = [ os.path.basename(imgname) for imgname in glob(str(dataset_directory/f"{split_type}/*"))]
 
 id2categories = {1:'animal',2:'person',3:'group',4:'vehicle'}
 categories2id = dict((v,k) for (k,v) in id2categories.items())
@@ -39,14 +42,14 @@ coco_camtrap['images'] = images
 coco_camtrap['annotations'] = annotations
 '''
 
-with open("bboxes_inc_empty_20200325.json",'r') as fh:
+with open(f"{json_file}",'r') as fh:
     instances = json.load(fh)
 
 for instance in tqdm(instances,desc='Progress:'):
     filename = instance['download_id'] + '.jpg'
     if not filename in split_filenames: continue # Skip if the image is from another split type
     try:
-        height, width, _ = imread(f'{split_type}/{filename}').shape
+        height, width, _ = imread(str(dataset_directory/f'{split_type}/{filename}')).shape
     except Exception as e:
         print(filename)
         sys.exit("Image reading error.. Exiting the program",e)
@@ -67,5 +70,5 @@ for instance in tqdm(instances,desc='Progress:'):
 coco_camtrap['images'] = images
 coco_camtrap['annotations'] = annotations
 
-with open(f'annotations/instances_{split_type}.json',"w") as fh:
+with open(dataset_directory/f'annotations/instances_{split_type}.json',"w") as fh:
     json.dump(coco_camtrap,fh)
