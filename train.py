@@ -115,14 +115,16 @@ class ModelWithLoss(nn.Module):
         imgs_ids = kwargs.get('imgs_ids', None)
          # `resizing_imgs_scales` will be activated in eval mode
         if new_ws is not None:
-            img_max = max(new_ws[0],new_hs[0])
-            framed_metas = [(w, h, w/scale, h/scale,img_max-w,img_max-h) for w,h,scale in zip(new_ws,new_hs,imgs_scales)]
-            framed_metas = [(int(a),int(b),int(c),int(d),int(e),int(f)) for (a,b,c,d,e,f) in framed_metas] 
+            img_max = max(new_ws[0], new_hs[0])
+            framed_metas = [(w, h, w/scale, h/scale, img_max-w, img_max-h) \
+                           for w, h, scale in zip(new_ws, new_hs, imgs_scales)]
+            framed_metas = [(int(a), int(b), int(c), int(d), int(e), int(f)) \
+                           for (a, b, c, d, e, f) in framed_metas]
             #Framed metas =  [w,h,org_w,org_h,pad_w,pad_h]
             # Example     = [(512, 384, 2048, 1536, 0, 128)]
             self.evalresults += evaluate_mAP(imgs.detach(), imgs_ids, framed_metas,
                                              regression, classification, anchors)
-                                             
+
         imgs_labelled = []
         if self.debug:
             cls_loss, reg_loss, imgs_labelled = self.criterion(classification, regression,
@@ -173,14 +175,14 @@ def train(opt):
     training_set = CocoDataset(root_dir=os.path.join(opt.data_path, params.project_name),
                                set=params.train_set,
                                transform=torchvision.transforms.Compose([Normalizer(mean=params.mean, std=params.std),
-                                                             Augmenter(),
-                                                             Resizer(input_sizes[opt.compound_coef])]))
+                                         Augmenter(),
+                                         Resizer(input_sizes[opt.compound_coef])]))
     training_generator = DataLoader(training_set, **training_params)
 
     val_set = CocoDataset(root_dir=os.path.join(opt.data_path, params.project_name),
                           set=params.val_set,
                           transform=torchvision.transforms.Compose([Normalizer(mean=params.mean, std=params.std),
-                                                        Resizer(input_sizes[opt.compound_coef])]))
+                          Resizer(input_sizes[opt.compound_coef])]))
     val_generator = DataLoader(val_set, **val_params)
 
     model = EfficientDetBackbone(num_classes=len(params.obj_list),
@@ -265,8 +267,10 @@ def train(opt):
 
     num_iter_per_epoch = len(training_generator)
     num_val_iter_per_epoch = len(val_generator)
-    #Limit the no.of preds to #images in val. Here, I averaged the #obj to 5 for computational efficacy
-    if opt.max_preds_toeval > 0: opt.max_preds_toeval = len(val_generator)*opt.batch_size* 5 
+    # Limit the no.of preds to #images in val. 
+    # Here, I averaged the #obj to 5 for computational efficacy
+    if opt.max_preds_toeval > 0: 
+        opt.max_preds_toeval = len(val_generator)*opt.batch_size* 5 
 
     try:
         for epoch in range(opt.num_epochs):
@@ -371,13 +375,13 @@ def train(opt):
                         if iternum%(num_iter_per_epoch//opt.viz_percent_epoch) != 0:
                             model.debug = False
                             cls_loss, reg_loss, _ = model(imgs, annot, obj_list=params.obj_list,
-                                                        resizing_imgs_scales=resizing_imgs_scales,
-                                                        new_ws=new_ws, new_hs=new_hs, imgs_ids=imgs_ids)
+                                                          resizing_imgs_scales=resizing_imgs_scales,
+                                                          new_ws=new_ws, new_hs=new_hs, imgs_ids=imgs_ids)
                         else:
                             model.debug = True
                             cls_loss, reg_loss, imgs_labelled = model(imgs, annot, obj_list=params.obj_list,
-                                                        resizing_imgs_scales=resizing_imgs_scales,
-                                                        new_ws=new_ws, new_hs=new_hs, imgs_ids=imgs_ids)
+                                                                      resizing_imgs_scales=resizing_imgs_scales,
+                                                                      new_ws=new_ws, new_hs=new_hs, imgs_ids=imgs_ids)
 
                             # create grid of images
                             imgs_labelled = np.asarray(imgs_labelled)
@@ -394,7 +398,7 @@ def train(opt):
                 cls_loss = np.mean(loss_classification_ls)
                 reg_loss = np.mean(loss_regression_ls)
                 loss = cls_loss + reg_loss
-                
+
                 print(
                     'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. Total loss: {:1.5f}'.format(
                         epoch, opt.num_epochs, cls_loss, reg_loss, loss))
@@ -405,9 +409,9 @@ def train(opt):
                 if opt.max_preds_toeval > 0:
                     json.dump(model.evalresults, open(evaluation_pred_file, 'w'), indent=4)
                     try:
-                        val_results = calc_mAP_fin(params.project_name,
-                                                    params.val_set, evaluation_pred_file)
-                        
+                        val_results = calc_mAP_fin(params.project_name,\
+                                                   params.val_set, evaluation_pred_file)
+
                         for catgname in val_results:
                             metricname = 'Average Precision  (AP) @[ IoU = 0.50      | area =    all | maxDets = 100 ]'
                             evalscore = val_results[catgname][metricname]

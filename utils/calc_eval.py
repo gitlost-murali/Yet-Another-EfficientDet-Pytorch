@@ -6,9 +6,8 @@ put weights here /path/to/your/weights/*.pth
 change compound_coef
 
 """
-import io, sys
-import yaml
-import re
+import io
+import sys
 import torch
 
 from pycocotools.coco import COCO
@@ -17,20 +16,25 @@ from pycocotools.cocoeval import COCOeval
 from efficientdet.utils import BBoxTransform, ClipBoxes
 from utils.utils import invert_affine, postprocess
 
-def evaluate_mAP(imgs, imgs_ids, framed_metas, regressions, classifications, anchors, threshold=0.05,nms_threshold=0.5):
+def evaluate_mAP(imgs, imgs_ids, framed_metas, regressions, \
+                 classifications, anchors, threshold=0.05, nms_threshold=0.5):
+    '''
+    Inputs: Images, Image IDs, Framed Metas (Resizing stats), prredictions
+    Output: results
+    '''
     results = [] # This is used for storing evaluation results.
     regressBoxes = BBoxTransform()
     clipBoxes = ClipBoxes()
     preds = postprocess(imgs,
-                    torch.stack([anchors[0]] * imgs.shape[0], 0).detach(), regressions.detach(), classifications.detach(),
-                    regressBoxes, clipBoxes,
-                    threshold, nms_threshold)
+                        torch.stack([anchors[0]] * imgs.shape[0], 0).detach(), regressions.detach(), classifications.detach(),
+                        regressBoxes, clipBoxes,
+                        threshold, nms_threshold)
 
     if not preds:
         return
 
     preds = invert_affine(framed_metas, preds)
-    for i in range(len(preds)):
+    for i, _ in enumerate(preds):
         scores = preds[i]['scores']
         class_ids = preds[i]['class_ids']
         rois = preds[i]['rois']
@@ -87,7 +91,7 @@ def _eval(coco_gt, image_ids, pred_json_path):
         for lin in lines:
             chunks = lin.split('=')
             metric = " = ".join(chunks[:-1]).strip()
-            score  = float(chunks[-1].strip())
+            score = float(chunks[-1].strip())
             category_results[catgry['name']][metric] = score
     return category_results
 

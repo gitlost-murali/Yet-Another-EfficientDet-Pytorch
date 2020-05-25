@@ -1,16 +1,21 @@
-from torch.utils.tensorboard import SummaryWriter
+# Tensorboard display supporter
 import cv2
-import os
-import uuid
 import numpy as np
+
 import torchvision
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 # default `log_dir` is "runs" - we'll be more specific here
 writer = SummaryWriter('runs/camera_trap_experiment_1')
 
-def display_tboard(preds, imgs, obj_list, imshow=False, imwrite=False,global_step=0,classification_loss=0,regression_loss=0):
-    for i in range(len(imgs)):
+def display_tboard(preds, imgs, obj_list, global_step=0,\
+                   classification_loss=0, regression_loss=0):
+    '''
+    Input: Images, predictions and other metrics
+    Function: Display on Tensorboard
+    '''
+    for i, _ in enumerate(imgs):
         if len(preds[i]['rois']) == 0:
             continue
 
@@ -24,23 +29,15 @@ def display_tboard(preds, imgs, obj_list, imshow=False, imwrite=False,global_ste
                         (x1, y1 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                         (255, 255, 0), 1)
 
-        if imshow:
-            cv2.imshow('img', imgs[i])
-            cv2.waitKey(0)
-
-        if imwrite:
-            os.makedirs('test/', exist_ok=True)
-            cv2.imwrite(f'test/{uuid.uuid4().hex}.jpg', imgs[i])
-        
     # create grid of images
     imgs = np.asarray(imgs)
     imgs = torch.from_numpy(imgs)   # (N, H, W, C)
     imgs.transpose_(1, 3)
-    img_grid = torchvision.utils.make_grid(imgs)   # (N, C, H, W)
+    imgs = torchvision.utils.make_grid(imgs)   # (N, C, H, W)
     # write to tensorboard
-    writer.add_image('four_camtrap_images_with_predicted_bboxes', img_grid,global_step=global_step)
+    writer.add_image('four_camtrap_images_with_predicted_bboxes', imgs, global_step=global_step)
 
     print(classification_loss)
     # ...log the running loss
-    writer.add_scalar('Classification loss',classification_loss,global_step=global_step)
-    writer.add_scalar('Regression loss',regression_loss,global_step=global_step)
+    writer.add_scalar('Classification loss', classification_loss, global_step=global_step)
+    writer.add_scalar('Regression loss', regression_loss, global_step=global_step)
