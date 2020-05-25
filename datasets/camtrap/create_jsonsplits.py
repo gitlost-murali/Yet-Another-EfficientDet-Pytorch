@@ -51,8 +51,8 @@ for instance in tqdm(instances,desc='Progress:'):
     try:
         height, width, _ = imread(str(dataset_directory/f'{split_type}/{filename}')).shape
     except Exception as e:
-        print(filename)
-        sys.exit("Image reading error.. Exiting the program",e)
+        print(f'{filename} is skipped due to ',e)
+        continue
 
     image = {"id":imageid,"file_name":f"{filename}","height":height,"width":width}
     labels = instance['bbox']
