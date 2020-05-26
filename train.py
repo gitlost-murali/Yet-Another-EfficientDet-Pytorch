@@ -90,6 +90,9 @@ def get_args():
                 help=' In the initial phases of training, model produces a lot of'\
                      'bounding boxes for a single image. So, limit the preds '\
                     ' to a certain number to avoid overburning CPU.')
+    parser.add_argument('--eval_sampling_percent', type=int, default=10,\
+                help=' How much percentage of validation images do you'\
+                     ' intend to validate in each epoch.')
 
     args = parser.parse_args()
     return args
@@ -394,6 +397,8 @@ def train(opt):
 
                         loss_classification_ls.append(cls_loss.item())
                         loss_regression_ls.append(reg_loss.item())
+
+                if iternum > (num_val_iter_per_epoch//opt.eval_sampling_percent): break
 
                 cls_loss = np.mean(loss_classification_ls)
                 reg_loss = np.mean(loss_regression_ls)
