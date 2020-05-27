@@ -83,14 +83,17 @@ def get_args():
     parser.add_argument('--debug', type=bool, default=True, \
         help='whether visualize the predicted boxes of training,'\
              'the output images will be in test/')
-    parser.add_argument('--viz_percent_epoch', type=int, default=10,\
-                help=' To determine, at what part of an epoch you want to visualize'\
-                     'An entry of 10 would mean, for every 1/10th of an epoch, we visualize')
+    parser.add_argument('--eval_percent_epoch', type=int, default=10,\
+                help=' To determine, at what part of an epoch you want to evaluate.'\
+                     'An entry of 10 would mean, for every 1/10th of a training epoch, we evaluate.')
     parser.add_argument('--max_preds_toeval', type=int, default=20000,\
                 help=' In the initial phases of training, model produces a lot of'\
                      'bounding boxes for a single image. So, limit the preds '\
                     ' to a certain number to avoid overburning CPU.')
     parser.add_argument('--eval_sampling_percent', type=int, default=10,\
+                help=' How much percentage of validation images do you'\
+                     ' intend to validate in each epoch.')
+    parser.add_argument('--num_visualize_images', type=int, default=10,\
                 help=' How much percentage of validation images do you'\
                      ' intend to validate in each epoch.')
 
@@ -158,7 +161,7 @@ def train(opt):
     os.makedirs(opt.saved_path, exist_ok=True)
 
     # evaluation json file
-    pred_folder = f'datasets/{OPT.project}/predictions'
+    pred_folder = f'{OPT.data_path}/{OPT.project}/predictions'
     os.makedirs(pred_folder, exist_ok=True)
     evaluation_pred_file = f'{pred_folder}/instances_bbox_results.json'
 
@@ -169,7 +172,7 @@ def train(opt):
                        'num_workers': opt.num_workers}
 
     val_params = {'batch_size': opt.batch_size,
-                  'shuffle': False,
+                  'shuffle': True,
                   'drop_last': True,
                   'collate_fn': collater,
                   'num_workers': opt.num_workers}
@@ -297,7 +300,7 @@ def train(opt):
                         annot = annot.cuda()
 
                     optimizer.zero_grad()
-                    if iternum%(num_iter_per_epoch//opt.viz_percent_epoch) != 0:
+                    if iternum%int(num_iter_per_epoch*(opt.eval_percent_epoch/100)) != 0:
                         model.debug = False
                         cls_loss, reg_loss, _ = model(imgs, annot, obj_list=params.obj_list)
                     else:
@@ -325,7 +328,7 @@ def train(opt):
                     writer.add_scalars('Regression_loss', {'train': reg_loss}, step)
                     writer.add_scalars('Classfication_loss', {'train': cls_loss}, step)
 
-                    if iternum%(num_iter_per_epoch//opt.viz_percent_epoch) == 0:
+                    if iternum%int(num_iter_per_epoch*(opt.eval_percent_epoch/100)) == 0:
                         # create grid of images
                         imgs_labelled = np.asarray(imgs_labelled)
                         imgs_labelled = torch.from_numpy(imgs_labelled)   # (N, H, W, C)
@@ -333,7 +336,100 @@ def train(opt):
                         imgs_labelled.transpose_(2, 3)
                         img_grid = torchvision.utils.make_grid(imgs_labelled)
                         # write to tensorboard
-                        writer.add_image('Camtrap_images_with_predicted_bboxes', img_grid, global_step=step)
+                        writer.add_image('Training_images', img_grid, global_step=step)
+#########################################################start EVAL#####################################################
+                        model.eval()
+                        model.debug = False # Don't print images in tensorboard now.
+                        
+                        # remove json
+                        if os.path.exists(evaluation_pred_file):
+                            os.remove(evaluation_pred_file)
+
+                        loss_regression_ls = []
+                        loss_classification_ls = []
+                        model.evalresults = [] # Empty the results for next evaluation.
+                        imgs_to_viz = []
+                        num_validation_samples = num_val_iter_per_epoch*(opt.eval_sampling_percent/100)
+                        for valiternum, valdata in enumerate(val_generator):
+                            with torch.no_grad():
+                                imgs = valdata['img']
+                                annot = valdata['annot']
+                                resizing_imgs_scales = valdata['scale']
+                                new_ws = valdata['new_w'] 
+                                new_hs = valdata['new_h'] 
+                                imgs_ids = valdata['img_id']
+
+                                if params.num_gpus >= 1:
+                                    imgs = imgs.cuda()
+                                    annot = annot.cuda()
+
+                                if valiternum%(num_validation_samples//(opt.num_visualize_images//opt.batch_size)) != 0:
+                                    model.debug = False
+                                    cls_loss, reg_loss, _ = model(imgs, annot, obj_list=params.obj_list,
+                                                                resizing_imgs_scales=resizing_imgs_scales,
+                                                                new_ws=new_ws, new_hs=new_hs, imgs_ids=imgs_ids)
+                                else:
+                                    model.debug = True
+                                    cls_loss, reg_loss, val_imgs_labelled = model(imgs, annot, obj_list=params.obj_list,
+                                                                            resizing_imgs_scales=resizing_imgs_scales,
+                                                                            new_ws=new_ws, new_hs=new_hs, imgs_ids=imgs_ids)
+                                    
+                                    imgs_to_viz += list(val_imgs_labelled)
+
+                                loss_classification_ls.append(cls_loss.item())
+                                loss_regression_ls.append(reg_loss.item())
+
+                            if valiternum > (num_validation_samples):
+                                break
+
+                        cls_loss = np.mean(loss_classification_ls)
+                        reg_loss = np.mean(loss_regression_ls)
+                        loss = cls_loss + reg_loss
+
+                        print(
+                            'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. Total loss: {:1.5f}'.format(
+                                epoch, opt.num_epochs, cls_loss, reg_loss, loss))
+                        writer.add_scalars('Loss', {'val': loss}, step)
+                        writer.add_scalars('Regression_loss', {'val': reg_loss}, step)
+                        writer.add_scalars('Classfication_loss', {'val': cls_loss}, step)
+                        # create grid of images
+                        val_imgs_labelled = np.asarray(imgs_to_viz)
+                        val_imgs_labelled = torch.from_numpy(val_imgs_labelled)   # (N, H, W, C)
+                        val_imgs_labelled.transpose_(1, 3) # (N, C, H, W)
+                        val_imgs_labelled.transpose_(2, 3)
+                        val_img_grid = torchvision.utils.make_grid(val_imgs_labelled,nrow=2)
+                        # write to tensorboard
+                        writer.add_image('Eval_Images', val_img_grid, \
+                                         global_step=(step))
+
+                        if opt.max_preds_toeval > 0:
+                            json.dump(model.evalresults, open(evaluation_pred_file, 'w'), indent=4)
+                            try:
+                                val_results = calc_mAP_fin(params.project_name,\
+                                                        params.val_set, evaluation_pred_file, \
+                                                        val_gt=f'{OPT.data_path}/{OPT.project}/annotations/instances_{params.val_set}.json')
+
+                                for catgname in val_results:
+                                    metricname = 'Average Precision  (AP) @[ IoU = 0.50      | area =    all | maxDets = 100 ]'
+                                    evalscore = val_results[catgname][metricname]
+                                    writer.add_scalars(f'mAP@IoU=0.5 and area=all', {f'{catgname}': evalscore}, step)
+                            except Exception as exption:
+                                print("Unable to perform evaluation", exption)
+
+                        if loss + opt.es_min_delta < best_loss:
+                            best_loss = loss
+                            best_epoch = epoch
+
+                            save_checkpoint(model, f'efficientdet-d{opt.compound_coef}_{epoch}_{step}.pth')
+
+                        model.train()
+
+                        # Early stopping
+                        if epoch - best_epoch > opt.es_patience > 0:
+                            print('[Info] Stop training at epoch {}. The lowest loss achieved is {}'.format(epoch, best_loss))
+                            break
+#########################################################EVAL#####################################################
+
 
                     # log learning_rate
                     current_lr = optimizer.param_groups[0]['lr']
@@ -350,92 +446,6 @@ def train(opt):
                     print(exception)
                     continue
             scheduler.step(np.mean(epoch_loss))
-
-            if epoch % opt.val_interval == 0:
-                model.eval()
-                model.debug = False # Don't print images in tensorboard now.
-                
-                # remove json
-                if os.path.exists(evaluation_pred_file):
-                    os.remove(evaluation_pred_file)
-
-                loss_regression_ls = []
-                loss_classification_ls = []
-                model.evalresults = [] # Empty the results for next epoch evaluation.
-                for iternum, data in enumerate(val_generator):
-                    with torch.no_grad():
-                        imgs = data['img']
-                        annot = data['annot']
-                        resizing_imgs_scales = data['scale']
-                        new_ws = data['new_w'] 
-                        new_hs = data['new_h'] 
-                        imgs_ids = data['img_id']
-
-                        if params.num_gpus >= 1:
-                            imgs = imgs.cuda()
-                            annot = annot.cuda()
-
-                        if iternum%(num_iter_per_epoch//opt.viz_percent_epoch) != 0:
-                            model.debug = False
-                            cls_loss, reg_loss, _ = model(imgs, annot, obj_list=params.obj_list,
-                                                          resizing_imgs_scales=resizing_imgs_scales,
-                                                          new_ws=new_ws, new_hs=new_hs, imgs_ids=imgs_ids)
-                        else:
-                            model.debug = True
-                            cls_loss, reg_loss, imgs_labelled = model(imgs, annot, obj_list=params.obj_list,
-                                                                      resizing_imgs_scales=resizing_imgs_scales,
-                                                                      new_ws=new_ws, new_hs=new_hs, imgs_ids=imgs_ids)
-
-                            # create grid of images
-                            imgs_labelled = np.asarray(imgs_labelled)
-                            imgs_labelled = torch.from_numpy(imgs_labelled)   # (N, H, W, C)
-                            imgs_labelled.transpose_(1, 3) # (N, C, H, W)
-                            imgs_labelled.transpose_(2, 3)
-                            img_grid = torchvision.utils.make_grid(imgs_labelled)
-                            # write to tensorboard
-                            writer.add_image('Eval_Camtrap_images_with_predicted_bboxes', img_grid, global_step=(iternum+(num_val_iter_per_epoch*epoch)))
-
-                        loss_classification_ls.append(cls_loss.item())
-                        loss_regression_ls.append(reg_loss.item())
-
-                if iternum > (num_val_iter_per_epoch//opt.eval_sampling_percent): break
-
-                cls_loss = np.mean(loss_classification_ls)
-                reg_loss = np.mean(loss_regression_ls)
-                loss = cls_loss + reg_loss
-
-                print(
-                    'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. Total loss: {:1.5f}'.format(
-                        epoch, opt.num_epochs, cls_loss, reg_loss, loss))
-                writer.add_scalars('Loss', {'val': loss}, step)
-                writer.add_scalars('Regression_loss', {'val': reg_loss}, step)
-                writer.add_scalars('Classfication_loss', {'val': cls_loss}, step)
-
-                if opt.max_preds_toeval > 0:
-                    json.dump(model.evalresults, open(evaluation_pred_file, 'w'), indent=4)
-                    try:
-                        val_results = calc_mAP_fin(params.project_name,\
-                                                   params.val_set, evaluation_pred_file)
-
-                        for catgname in val_results:
-                            metricname = 'Average Precision  (AP) @[ IoU = 0.50      | area =    all | maxDets = 100 ]'
-                            evalscore = val_results[catgname][metricname]
-                            writer.add_scalars(f'mAP@IoU=0.5 and area=all', {f'{catgname}': evalscore}, step)
-                    except Exception as exption:
-                        print("Unable to perform evaluation", exption)
-
-                if loss + opt.es_min_delta < best_loss:
-                    best_loss = loss
-                    best_epoch = epoch
-
-                    save_checkpoint(model, f'efficientdet-d{opt.compound_coef}_{epoch}_{step}.pth')
-
-                model.train()
-
-                # Early stopping
-                if epoch - best_epoch > opt.es_patience > 0:
-                    print('[Info] Stop training at epoch {}. The lowest loss achieved is {}'.format(epoch, best_loss))
-                    break
     except KeyboardInterrupt:
         save_checkpoint(model, f'efficientdet-d{opt.compound_coef}_{epoch}_{step}.pth')
         writer.close()

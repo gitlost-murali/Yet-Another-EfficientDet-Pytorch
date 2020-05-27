@@ -97,9 +97,9 @@ def _eval(coco_gt, image_ids, pred_json_path):
 
 def calc_mAP_fin(project_name='shape',
                  set_name='val',
-                 evaluation_pred_file='datasets/shape/predictions/instances_bbox_results.json'):
-    val_gt = f'datasets/{project_name}/annotations/instances_{set_name}.json'
-    max_images = 10000
+                 evaluation_pred_file='datasets/shape/predictions/instances_bbox_results.json',
+                 val_gt = 'datasets/shape/annotations/instances_val.json',
+                 max_images = 100000):
     coco_gt = COCO(val_gt)
     image_ids = coco_gt.getImgIds()[:max_images]
     return _eval(coco_gt, image_ids, evaluation_pred_file)
