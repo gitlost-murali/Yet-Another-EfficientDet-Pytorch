@@ -83,14 +83,14 @@ def get_args():
     parser.add_argument('--debug', type=bool, default=True, \
         help='whether visualize the predicted boxes of training,'\
              'the output images will be in test/')
-    parser.add_argument('--eval_percent_epoch', type=int, default=10,\
+    parser.add_argument('--eval_percent_epoch', type=float, default=10,\
                 help=' To determine, at what part of an epoch you want to evaluate.'\
                      'An entry of 10 would mean, for every 1/10th of a training epoch, we evaluate.')
     parser.add_argument('--max_preds_toeval', type=int, default=20000,\
                 help=' In the initial phases of training, model produces a lot of'\
                      'bounding boxes for a single image. So, limit the preds '\
                     ' to a certain number to avoid overburning CPU.')
-    parser.add_argument('--eval_sampling_percent', type=int, default=10,\
+    parser.add_argument('--eval_sampling_percent', type=float, default=10,\
                 help=' How much percentage of validation images do you'\
                      ' intend to validate in each epoch.')
     parser.add_argument('--num_visualize_images', type=int, default=10,\
@@ -328,7 +328,7 @@ def train(opt):
                     writer.add_scalars('Regression_loss', {'train': reg_loss}, step)
                     writer.add_scalars('Classfication_loss', {'train': cls_loss}, step)
 
-                    if iternum%int(num_iter_per_epoch*(opt.eval_percent_epoch/100)) == 0:
+                    if iternum%int(num_iter_per_epoch*(opt.eval_percent_epoch/100)) == 0 and step > 0:
                         # create grid of images
                         imgs_labelled = np.asarray(imgs_labelled)
                         imgs_labelled = torch.from_numpy(imgs_labelled)   # (N, H, W, C)
@@ -349,7 +349,7 @@ def train(opt):
                         loss_classification_ls = []
                         model.evalresults = [] # Empty the results for next evaluation.
                         imgs_to_viz = []
-                        num_validation_samples = num_val_iter_per_epoch*(opt.eval_sampling_percent/100)
+                        num_validation_steps = int(num_val_iter_per_epoch*(opt.eval_sampling_percent/100))
                         for valiternum, valdata in enumerate(val_generator):
                             with torch.no_grad():
                                 imgs = valdata['img']
@@ -363,7 +363,7 @@ def train(opt):
                                     imgs = imgs.cuda()
                                     annot = annot.cuda()
 
-                                if valiternum%(num_validation_samples//(opt.num_visualize_images//opt.batch_size)) != 0:
+                                if valiternum%(num_validation_steps//(opt.num_visualize_images//opt.batch_size)) != 0:
                                     model.debug = False
                                     cls_loss, reg_loss, _ = model(imgs, annot, obj_list=params.obj_list,
                                                                 resizing_imgs_scales=resizing_imgs_scales,
@@ -379,7 +379,7 @@ def train(opt):
                                 loss_classification_ls.append(cls_loss.item())
                                 loss_regression_ls.append(reg_loss.item())
 
-                            if valiternum > (num_validation_samples):
+                            if valiternum > (num_validation_steps):
                                 break
 
                         cls_loss = np.mean(loss_classification_ls)

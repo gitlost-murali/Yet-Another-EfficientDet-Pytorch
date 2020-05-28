@@ -51,8 +51,15 @@ def evaluate_mAP(imgs, imgs_ids, framed_metas, regressions, \
                 label = int(class_ids[roi_id])
                 box = rois[roi_id, :]
 
+                breakflag = False
                 if score < threshold:
                     break
+                for num in box:
+                    if num < 0:
+                        breakflag = True
+                if breakflag: 
+                    break
+
                 image_result = {
                     'image_id': imgs_ids[i],
                     'category_id': label + 1,
