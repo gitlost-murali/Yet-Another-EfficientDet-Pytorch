@@ -33,6 +33,7 @@ ap.add_argument('--cuda', type=bool, default=True)
 ap.add_argument('--device', type=int, default=0)
 ap.add_argument('--float16', type=bool, default=False)
 ap.add_argument('--override', type=bool, default=True, help='override previous bbox results file if exists')
+ap.add_argument('--data_path', type=str, default='datasets/', help='the root folder of dataset')
 args = ap.parse_args()
 
 compound_coef = args.compound_coef
@@ -59,7 +60,8 @@ def evaluate_coco(img_path, set_name, image_ids, coco, model, threshold=0.05):
     regressBoxes = BBoxTransform()
     clipBoxes = ClipBoxes()
 
-    for image_id in tqdm(image_ids):
+    for idx, image_id in tqdm(enumerate(image_ids)):
+        if idx >100: break
         image_info = coco.loadImgs(image_id)[0]
         image_path = img_path + image_info['file_name']
 
@@ -144,8 +146,8 @@ def _eval(coco_gt, image_ids, pred_json_path):
 
 if __name__ == '__main__':
     SET_NAME = params['val_set']
-    VAL_GT = f'datasets/{params["project_name"]}/annotations/instances_{SET_NAME}.json'
-    VAL_IMGS = f'datasets/{params["project_name"]}/{SET_NAME}/'
+    VAL_GT = f'{args.data_path}/{params["project_name"]}/annotations/instances_{SET_NAME}.json'
+    VAL_IMGS = f'{args.data_path}/{params["project_name"]}/{SET_NAME}/'
     MAX_IMAGES = 10000
     coco_gt = COCO(VAL_GT)
     image_ids = coco_gt.getImgIds()[:MAX_IMAGES]

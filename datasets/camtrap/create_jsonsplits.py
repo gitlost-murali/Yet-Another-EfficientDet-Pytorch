@@ -62,7 +62,8 @@ for instance in tqdm(instances,desc='Progress:'):
         category = label['category']    
         category_id = categories2id[category]
         bbox = [label['bbox'][0]*width,label['bbox'][1]*height,label['bbox'][2]*width,label['bbox'][3]*height]
-        annotation = {"id":annotationid,"image_id":imageid,"category_id":category_id,"bbox":bbox,"iscrowd":0}
+        area = bbox[2] * bbox[3]
+        annotation = {"id":annotationid,"image_id":imageid,"category_id":category_id,"bbox":bbox,"area":area}
         annotations.append(annotation)
         annotationid+=1
 
